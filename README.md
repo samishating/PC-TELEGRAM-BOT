@@ -52,7 +52,17 @@ To set up the bot to **start automatically** when your computer boots:
 3. **Note**: If you ever move this project folder to a new location, simply run `install.bat` again to update the paths automatically.
 
 ### 4. Configuration
-Launch the setup utility to configure your tokens and permissions:
+You can configure the bot in two ways:
+
+#### A. Using .env (Recommended)
+Rename `.env.example` to `.env` and fill in your tokens:
+- `TELEGRAM_TOKEN`: Your BotFather token.
+- `GEMINI_TOKEN`: Your Gemini AI API key.
+- `CONSOLE_MODE`: `show` or `hide`.
+- `STARTUP_ENABLED`: `true` or `false`.
+
+#### B. Using Setup Utility
+Alternatively, launch the setup utility to configure your tokens and permissions:
 ```powershell
 python bot/bot_setup.py
 ```

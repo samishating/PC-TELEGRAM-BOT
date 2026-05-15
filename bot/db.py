@@ -14,6 +14,10 @@ from tzlocal import get_localzone
 import zoneinfo
 
 import utils
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv(os.path.join(os.path.dirname(utils.current_path()), ".env"))
 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -142,6 +146,16 @@ def token_set(token_type: str, token_value: str) -> None:
 
 
 def token_get(token_type: str) -> Optional[str]:
+    # Check environment variables first
+    env_map = {
+        "BotFather_token": "TELEGRAM_TOKEN",
+        "Gemini_token": "GEMINI_TOKEN"
+    }
+    if token_type in env_map:
+        env_val = os.getenv(env_map[token_type])
+        if env_val:
+            return env_val
+
     session = DBsession()
     entry = session.query(Config).filter(Config.name == token_type).one_or_none()
     if entry:
@@ -167,6 +181,11 @@ def user_role(user: str, admin: bool) -> None:
 
 
 def console_get() -> Optional[str]:
+    # Check environment variable first
+    env_val = os.getenv("CONSOLE_MODE")
+    if env_val:
+        return env_val
+
     session = DBsession()
     entry = session.query(Config).filter(Config.name == "console").one_or_none()
     if entry:
@@ -194,6 +213,11 @@ def startup_set(value: str) -> None:
 
 
 def startup_get() -> Optional[str]:
+    # Check environment variable first
+    env_val = os.getenv("STARTUP_ENABLED")
+    if env_val:
+        return env_val
+
     session = DBsession()
     entry = session.query(Config).filter(Config.name == "startup").one_or_none()
     if entry:
