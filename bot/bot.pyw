@@ -300,7 +300,6 @@ def message_handler(update: Update, context: CallbackContext) -> None:
                         "/shutdown_h": shutdown_h,
                         "/reboot": reboot,
                         "/cancel": cancel,
-                        "/cancel_startup": cancel_startup_shutdown,
                         "/launch": launch,
                         "/link": link,
                         "/memo": memo_thread,
@@ -1108,127 +1107,7 @@ class MonitorThread(threading.Thread):
             time.sleep(60)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# STARTUP AUTO-SHUTDOWN GUARD
-# ──────────────────────────────────────────────────────────────────────────────
-# How it works:
-#   1. On every bot startup a 120-second shutdown timer is armed.
-#   2. All admins receive a Telegram alert with an inline "Cancel Shutdown" button.
-#   3. Pressing the button (or sending /cancel_startup) cancels the timer and
-#      aborts any pending OS-level shutdown.
-#   4. If nobody acts within 2 minutes the PC shuts down immediately.
 
-_startup_cancel_event = threading.Event()   # set this to cancel the countdown
-_STARTUP_SHUTDOWN_DELAY = 120               # seconds (2 minutes)
-
-
-def _startup_shutdown_worker(bot: Bot) -> None:
-    """Background thread: waits for the cancel event or shuts the PC down."""
-    cancelled = _startup_cancel_event.wait(timeout=_STARTUP_SHUTDOWN_DELAY)
-    if cancelled:
-        logger.info("Startup shutdown guard: cancelled by user.")
-        return
-
-    logger.warning("Startup shutdown guard: timeout reached – shutting down NOW.")
-    admins = db.get_admins_id()
-    for admin_id in admins:
-        try:
-            bot.send_message(
-                chat_id=admin_id,
-                text="🔴 No cancellation received. *Shutting down NOW\!*",
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
-        except Exception:
-            pass
-
-    if platform.system() == "Windows":
-        subprocess.run("shutdown /s /t 0", startupinfo=startupinfo())
-    else:
-        subprocess.run("shutdown -h now", shell=True, startupinfo=startupinfo())
-
-
-def startup_shutdown_guard(bot: Bot) -> None:
-    """Arm the startup auto-shutdown and notify all admins."""
-    _startup_cancel_event.clear()  # make sure it starts in the "not cancelled" state
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ I'm here – Cancel Shutdown", callback_data="cancel_startup_shutdown")]
-    ])
-
-    admins = db.get_admins_id()
-    for admin_id in admins:
-        try:
-            bot.send_message(
-                chat_id=admin_id,
-                text=(
-                    f"🔐 *Startup Security Guard*\n\n"
-                    f"The PC will automatically *shut down in {_STARTUP_SHUTDOWN_DELAY // 60} minutes* "
-                    f"unless you confirm your presence\.\.\.\.\n\n"
-                    f"Tap the button below or send /cancel\_startup to stay on\."
-                ),
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard
-            )
-        except Exception as e:
-            logger.error(f"startup_shutdown_guard: could not notify admin {admin_id}: {e}")
-
-    t = threading.Thread(target=_startup_shutdown_worker, args=(bot,), daemon=True, name="StartupShutdownGuard")
-    t.start()
-    logger.info(f"Startup shutdown guard armed – {_STARTUP_SHUTDOWN_DELAY}s countdown started.")
-
-
-def _do_cancel_startup(bot: Bot, chat_id: int) -> None:
-    """Shared logic: cancel the startup guard and acknowledge."""
-    if not _startup_cancel_event.is_set():
-        _startup_cancel_event.set()
-        # Also abort any OS-level scheduled shutdown (safety net)
-        try:
-            if platform.system() == "Windows":
-                subprocess.run("shutdown /a", startupinfo=startupinfo())
-            else:
-                subprocess.run("shutdown -c", shell=True, startupinfo=startupinfo())
-        except Exception:
-            pass
-        try:
-            bot.send_message(
-                chat_id=chat_id,
-                text="✅ Startup shutdown *cancelled*\. Welcome back\!",
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
-        except Exception as e:
-            logger.error(f"_do_cancel_startup send error: {e}")
-        logger.info("Startup shutdown guard cancelled by user.")
-    else:
-        try:
-            bot.send_message(
-                chat_id=chat_id,
-                text="ℹ️ Startup shutdown was already cancelled \(or never active\)\.",
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
-        except Exception:
-            pass
-
-
-@crash_handler
-@db.admin_check
-def cancel_startup_shutdown(update: Update, context: CallbackContext) -> None:
-    """Command handler: /cancel_startup"""
-    db.update_user(update.message.from_user, context.bot)
-    _do_cancel_startup(context.bot, update.message.chat.id)
-
-
-def cancel_startup_callback(update: Update, context: CallbackContext) -> None:
-    """Inline button callback handler for the startup shutdown cancel button."""
-    query = update.callback_query
-    try:
-        query.answer()  # dismiss the loading spinner
-    except Exception:
-        pass
-    _do_cancel_startup(context.bot, query.message.chat.id)
-    try:
-        query.edit_message_reply_markup(reply_markup=None)  # remove the button
-    except Exception:
-        pass
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1255,7 +1134,6 @@ def main() -> None:
     updater.bot.set_my_commands([
         BotCommand("brightness", "Set PC brightness (0-100)"),
         BotCommand("cancel", "Cancel the previous command"),
-        BotCommand("cancel_startup", "Cancel the startup auto-shutdown guard"),
         BotCommand("clipboard_get", "Get PC clipboard content"),
         BotCommand("close", "Close the active window"),
         BotCommand("empty_trash", "Empty Recycle Bin"),
@@ -1292,9 +1170,6 @@ def main() -> None:
     # Send a message when the bot is up and running
     is_up_notification(updater.bot)
 
-    # Arm the startup auto-shutdown guard (2-minute countdown)
-    startup_shutdown_guard(updater.bot)
-
     # Start
     dp.add_handler(CommandHandler("start", start))
 
@@ -1318,10 +1193,6 @@ def main() -> None:
 
     # Annul the previous command
     dp.add_handler(CommandHandler("cancel", cancel))
-
-    # Cancel the startup auto-shutdown guard
-    dp.add_handler(CommandHandler("cancel_startup", cancel_startup_shutdown))
-    dp.add_handler(CallbackQueryHandler(cancel_startup_callback, pattern="^cancel_startup_shutdown$"))
 
     # Launch a program
     dp.add_handler(CommandHandler("launch", launch, pass_args=True))

@@ -14,10 +14,12 @@ from tzlocal import get_localzone
 import zoneinfo
 
 import utils
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv(os.path.join(os.path.dirname(utils.current_path()), ".env"))
+try:
+    from dotenv import load_dotenv
+    # Load environment variables from .env file
+    load_dotenv(os.path.join(os.path.dirname(utils.current_path()), ".env"))
+except ImportError:
+    load_dotenv = None
 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
